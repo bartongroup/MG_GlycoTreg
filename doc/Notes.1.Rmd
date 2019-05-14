@@ -1,0 +1,34 @@
+---
+title: "Glycosyltransferases and glycosidases in Treg activation"
+output:
+  html_notebook:
+    css: tabbed_notebook.css
+---
+
+
+```{r setup, include=FALSE}
+library(knitr)
+library(ggplot2)
+options(width = 100)
+
+opts_chunk$set(
+  warning=FALSE,
+  message=FALSE,
+  include=FALSE
+)
+```
+
+Collaborators: [Paul Crocker](), [Gavuthami Murugesan](), [Gang Wu]()
+
+[Proposal]()
+
+# 15/05/2019
+
+Downloaded FASTQ file from Basespace using basemount (direct download does not work in Linux). Using a modified Snakemake file copied from another project (trypseq). Starting routine analysis. Created conda environment with (hopefully) all necessary packages. Running snakamake. 
+
+Oh joy of joys. I've recently upgraded to R 3.6, which means that now I need to re-install all the libraries. This takes time...
+
+
+
+
+
