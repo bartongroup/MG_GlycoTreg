@@ -37,3 +37,25 @@ readBedgraphs <- function(dir, metadata, windowSize=100000) {
   bg <- do.call(rbind, P)
 }
 
+plotStarSense <- function(file) {
+  
+  oneplot <- function(d, col1, col2) {
+    d[[col1]] <- log10(d[[col1]])
+    d[[col2]] <- log10(d[[col2]])
+    ggplot(d, aes_string(col1, col2)) +
+      theme_classic() +
+      geom_point(size=0.1) +
+      geom_abline(slope=1, intercept=0, colour="red") +
+      labs(x=col1, y=col2)
+  }
+  
+  stopifnot(file.exists(file))
+  f <- read.table(file, sep="\t", header=FALSE, skip=4)
+  names(f) <- c("gene", "Unstranded", "First", "Second")
+  g1 <- oneplot(f, "Unstranded", "First")
+  g2 <- oneplot(f, "Unstranded", "Second")
+  g3 <- oneplot(f, "First", "Second")
+  
+  plot_grid(g1, g2, g3, ncol=3)
+}
+

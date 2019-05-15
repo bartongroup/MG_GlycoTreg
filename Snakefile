@@ -222,6 +222,8 @@ rule index_bam:
 
 ####################################################################
 # BED and bedGraph files
+# Make sure bed files and bed window are sorted, so we can use -sorted
+# option in intersect - this uses much less memory.
 
 rule bamtobed:
     input: "bam/{sample}.bam"
@@ -235,7 +237,7 @@ rule bedwindow:
     output: windowFile
     log: "logs/make_window.log"
     shell:
-        "bedtools makewindows -w {windowSize} -s {windowSize} -g {input} > {output} 2> {log}"
+        "bedtools makewindows -w {windowSize} -s {windowSize} -g {input} | sort -k1,1 -k2,2n > {output} 2> {log}"
 
 rule bedgraph:
     input: 
@@ -244,6 +246,6 @@ rule bedgraph:
     output: "bedgraph/{sample}." + windowSize + ".bedgraph"
     log: "logs/{sample}_bedgraph.log"
     shell:
-        "bedtools intersect -c -a {input.window} -b {input.bed} 2> {log} > {output}" 
+        "bedtools intersect -c -sorted -a {input.window} -b {input.bed} > {output} 2> {log}" 
 
 

@@ -22,11 +22,17 @@ Collaborators: [Paul Crocker](), [Gavuthami Murugesan](), [Gang Wu]()
 
 [Proposal]()
 
-# 15/05/2019
+# 14/05/2019
 
 Downloaded FASTQ file from Basespace using basemount (direct download does not work in Linux). Using a modified Snakemake file copied from another project (trypseq). Starting routine analysis. Created conda environment with (hopefully) all necessary packages. Running snakamake. 
 
 Oh joy of joys. I've recently upgraded to R 3.6, which means that now I need to re-install all the libraries. This takes time...
+
+# 15/05/2019
+
+Bedgraph intersect failed due to lack of memory. The trick is to sort bed and bed window files and then use `-sorted` option, which is much more memory efficient (and faster!).
+
+Working on the report and Shiny app. Took some time to get the app running, as the new selection (all/glyco) messed up everything.
 
 
 

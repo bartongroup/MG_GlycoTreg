@@ -47,10 +47,11 @@ source("../R/setup.R")
 source("../R/star.R")
 source("../R/plots.R")
 source("../R/biomart.R")
-
+source("../R/set_enrichment.R")
 library(knitr)
 library(kableExtra)
 library(rjson)
+library(ggbeeswarm)
 library(cowplot)
 library(grid)
 library(viridis)
@@ -73,7 +74,9 @@ metadata <- tibble(
   replicate = c(1:4, 1:4)
 ) %>% 
   mutate(sample = paste0(condition, "_", replicate)) %>%
-  mutate(name = sample, group = as.factor(condition))
+  mutate(name = sample, group = as.factor(condition)) %>%
+  mutate(group = relevel(group, "TregRest")) %>%
+  as.data.frame
 ```
 
 The experimental design is very simple: two conditions in four replicates each.
@@ -113,7 +116,12 @@ Briefly, quality of data is generally good. We have 50-60 M reads per sample, re
 We use mouse genome data from Ensembl, assembly GRCm38, release 96.
 
 ```{r genes_biomart}
-mart <- useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl", version=96)
+# there is a curl error when accessing specific version 96. Perhaps a temporary glitch.
+# Instead, I ignore version number and use the current version. At the moment of writing this script 
+# it is 96.
+#mart <- useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl", version=96)
+
+mart <- useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl")
  
 genes <- biomartGeneDownload(mart)
 genes <- genes[, c("gene_id", "gene_name", "description")]
@@ -125,6 +133,40 @@ transcripts$description <- gsub("\\s\\[.*\\]", "", transcripts$description, perl
 ```
 
 For genome sequences, we downloaded RepeatMasker-filtered primary assembly. The gene models are in the form of a GTF file. We also downloaded CDNA sequences to use as transcriptome with *Salmon*.
+
+#### Glycogenes
+
+I received a table with glycogenes from Gavuthami.
+
+```{r read_glycogenes}
+file <- paste0(dirs$data, "glycogenes.txt")
+glyco <- read.table(file, sep="\t", header=TRUE)
+
+# there are weird strings in column names
+colnames(glyco) <- gsub("\\.M20.*$", "", colnames(glyco), perl=TRUE)
+
+# some refseq entries have two comma-separated IDs
+refseq <- unique(as.character(glyco$yourlist))
+refseq <- unlist(strsplit(refseq, ","))
+```
+
+It contains `r N(nrow(glyco))` entires with `r N(length(refseq))` unique RefSeq identifiers. This is a result of mapping RefSeq to UniProt. I use Ensembl to map RefSeq IDs into Ensembl IDs used in this work.
+
+```{r convert_glyco}
+glyco.map <- getBM(
+  attributes=c("refseq_mrna", "ensembl_gene_id", "external_gene_name"),
+  filters = "refseq_mrna",
+  values = refseq,
+  mart = mart
+)
+glyco.ens <- unique(glyco.map$ensembl_gene_id)
+```
+
+```{r glyco_ens}
+myKable(glyco.map) %>% scroll_box(height = "400px", width = "400px")
+```
+
+This gives us `r N(nrow(glyco.map))` mappings with `r N(length(glyco.ens))` unique Ensembl IDs associated with glycogenes.
 
 ### STAR
 
@@ -144,7 +186,7 @@ kable(star.out.sel) %>% kable_styling(bootstrap_options = c("striped", "hover", 
 
 #### Strandedness
 
-Next, we checked if data were stranded as they should be. We read STAR gene read count file for one sample (`TP_7`). It contains three columns of counts: 
+Next, we checked if data were stranded as they should be. We read STAR gene read count file for one sample (`TregRest_1`). It contains three columns of counts: 
 
 - unstranded RNA-seq
 - 1st read strand aligned with RNA
@@ -153,26 +195,25 @@ Next, we checked if data were stranded as they should be. We read STAR gene read
 Depending on the protocol, column 2 (or 3) contains sense reads, while the other column (3 or 2) should contain antisense reads. We expect the antisense reads to be much less than sense reads.
 
 ```{r star_strandedness, fig.width=8, fig.height=2.5}
-plotStarSense(paste0(dirs$readcount, "TP_7.txt"))
+plotStarSense(paste0(dirs$readcount, "TregRest_1.txt"))
 ```
 
-This is not what we expected. Clearly, we were given unstranded data!
+The second read strand contains our stranded data.
 
 #### Read distribution
 
 ```{r read_bedgraphs_ens}
-bg <- readBedgraphs(dirs$bedgraph, metadata, windowSize = 500000)
+bg <- readBedgraphs(dirs$bedgraph, metadata, windowSize = 1000000)
 ```
 
 Here we show reads mapped to the entire genome binned in bins of 0.5 Mb. The horizontal axis shows the cumulative genomic position across all chromosomes. Colour (not very well visible) show alternating chromosomes.
 
-```{r manhattan_plot_ens, fig.width=10, fig.height=14}
+```{r manhattan_plot_ens, fig.width=10, fig.height=8}
 plotManhattan(bg, yscale=1e6) 
 ```
 
-There is a strong feature in samples 13, 19 ,25, 28 (WT/neturo) and 7, 10, 16, 22 (KI/neutro). The feature is in chromosome 3 in the bin 90.5-91 Mb. We are going to have a good look at it later. It might be a very highly expressed gene. Or not...
 
-A bit later: this is one of the highest-expressed genes, S100a9 (S100 calcium binding protein A9). Consistently high expression in both WT_ntr and KI_ntr replicates. Looks all right.
+The strong peak on the right is the start of MT, so probably not interesting. The peak on the left is in chromosome 1, bin 24.0-24.5 Mb. We might check it later to see what gene it is.
 
 Here is the same plot, but with the vertical axis limited to show distribution of lower counts.
 
@@ -186,7 +227,7 @@ plotManhattan(bg, yscale=1e6, ymax=1)
 Let's read STAR read counts per gene and have a global look at all data.
 
 ```{r star_read_counts}
-cnt.star <- do.call(cbind, lapply(metadata$sample, function(s) parseStarCount(dirs$readcount, s)))
+cnt.star <- do.call(cbind, lapply(metadata$sample, function(s) parseStarCount(dirs$readcount, s, column=4)))
 cnt.star <- as.matrix(cnt.star)
 colnames(cnt.star) <- metadata$name
 tot.count <- colSums(cnt.star)
@@ -198,21 +239,23 @@ sd.star <- funCondition(cnt.star.norm, metadata, sd)
 
 #### Distance matrix
 
-The distance matrix show the Pearson's correlation coefficient between each pair of replicates, based on the read count per gene. We can see that replicates are similar within biological conditions, but there are large differences between conditions.
+The distance matrix show the Pearson's correlation coefficient between each pair of replicates, based on the read count per gene. 
 
 ```{r star_distance_matrix, fig.width=6, fig.height=5}
 plotDistanceMatrix(cnt.star, metadata) 
 ```
 
-Neutrophils stand out on their own, and divide between WT and KT. Ly6c- separate into WT and KI as well. Only Ly6c+ are a little bit more mixed.
-
 At first glance, we have good data with reproducible replicates and big changes between biological conditions.
 
 #### Clustering
 
+This is confirmed by clustering.
+
 ```{r star_clustering, fig.width=5, fig.height=4}
 plotClustering(cnt.star)
 ```
+
+Note that there seem to be differences between replicates 1-2 and 3-4 in both conditions. Sequencing was done in one go, on a single flow cell. Perhaps this is due to how samples were prepared?
 
 #### PCA
 
@@ -245,28 +288,26 @@ The table with normalized counts per gene can be downloaded from [here](`r url`)
 
 We first start with STAR results, that is read counts per gene.
 
-We use `edgeR` with the following, very two-condition design.
+We use `edgeR` with a simple two-condition design.
 
 ```{r design_setup}
-# need to simplify names
-
-
 design <- model.matrix(~0 + metadata$group)
 colnames(design) <- levels(metadata$group)
 
 gt.contrasts <- makeContrasts(
-  Lplus.diff = "TregRest-TregAct",
+  "Active-Rest" = "TregAct-TregRest",
   levels = design
 )
 contrasts <- colnames(gt.contrasts)
+contrast.names <- setNames(list(contrasts), contrasts)  # for use in figures; change in case contrasts are complicated
 ```
 
 
 ```{r edger_star_fit}
 y <- DGEList(counts=as.matrix(cnt.star), group=metadata$group)
 y <- calcNormFactors(y)
-y <- estimateDisp(y, design.simple)
-star.fit <- glmQLFit(y, design.simple)
+y <- estimateDisp(y, design)
+star.fit <- glmQLFit(y, design) 
 ```
 
 ```{r edger_star_test}
@@ -277,30 +318,40 @@ star.test <- lapply(contrasts, function(ctr) {
   colnames(tab)[1] <- "gene_id"
   tab
 })
-names(star.test) <- contrast.names
+names(star.test) <- contrasts 
 ```
 
 
 ```{r star_volcano_plot_function}
-plotVolcano <- function(tab, alpha=0.05, title="") {
+plotVolcano <- function(tab, alpha=0.05, title="", sel=NULL) {
   lim <- log10(max(tab[tab$FDR < alpha, "PValue"]))
+  tab$x <- tab$logFC
+  tab$y <- -log10(tab$PValue)
+  if(!is.null(sel)) {tab$sel <- tab$gene_id %in% sel} else {tab$sel=FALSE}
   ggplot(tab) +
     theme_classic() +
-    geom_point(aes(logFC, -log10(PValue)), size=0.1) +
+    theme(legend.position = "none") +
+    geom_point(aes(x=x, y=y), colour="grey70", size=0.3) +
+    geom_point(data=tab[tab$sel, ], aes(x=x, y=y), colour="black", size=0.6) +
     geom_vline(xintercept = 0, colour="grey70") +
     geom_hline(yintercept = -lim, colour="red", linetype="dashed") +
-    labs(x="log FC", y="log10 P", title=title)
+    labs(x=expression(log[2]~FC), y=expression(log[10]~P), title=title) +
+    scale_y_continuous(expand=c(0,0), limits=c(0, 1.04*max(-log10(tab$PValue))))
 }
 ```
 
-### Volcano plots
+### Volcano plot
 
-```{r star_volcano_plots, fig.width=10, fig.height=4}
+```{r star_volcano_plots, fig.width=6, fig.height=5}
 P <- lapply(names(star.test), function(ctr) {
-  plotVolcano(star.test[[ctr]], title=ctr)
+  plotVolcano(star.test[[ctr]], title=ctr, sel=glyco.ens)
 })
-grid.arrange(grobs=P, nrow=1)
+plot_grid(plotlist = P, nrow = 1)
+ 
+p.val <- star.test[[1]]$FDR 
 ```
+
+There are `r N(sum(p.val < 0.05))` differentially expressed genes (at FDR level of 0.05) among `r N(length(p.val))` of all tested genes.
 
 ### DE tables
 
@@ -314,15 +365,15 @@ for(ctr in contrasts) {
   links <- rbind(links, data.frame(
     url = paste0("[", contrast.names[[ctr]], "](", public_html, "download/", fname, ")")  
   ))
-}
-myKable(links) 
+} 
+myKable(links)
 ```
 
 
 
 ### Functional enrichment
 
-We download GO-term data from `BioMart`, using the same version (93) as for our genome. For pathway analysis we download data from Reactome, using the current file: https://reactome.org/download/current/Ensembl2Reactome.txt. Both data sets are uploaded to the Shiny server and are used in the [interactive data explorer](https://shiny.compbio.dundee.ac.uk/marek_abin1/shiny_de/).
+We download GO-term data from `BioMart`, using the same version (96) as for our genome. For pathway analysis we download data from Reactome, using the current file: https://reactome.org/download/current/Ensembl2Reactome.txt. Both data sets are uploaded to the Shiny server and are used in the [interactive data explorer](https://shiny.compbio.dundee.ac.uk/marek_glycotreg/shiny_de/).
 
 ```{r go_term_names}
 go.terms <- biomartGODescriptions(mart)
@@ -363,170 +414,59 @@ gene.reactome <- reactome.sel[, c("gene_id", "reactome_id")]
 if(!dir.exists("../RData")) dir.create("../RData")
 DE <- star.test
 expr <- cnt.star.norm
-metadata$condition <- factor(metadata$condition, levels=c("WT_ntr", "KI_ntr", "WT_Ly6c+", "KI_Ly6c+", "WT_Ly6c-", "KI_Ly6c-"))
-save(DE, expr, go.terms, gene.go, reactome.terms, gene.reactome, metadata, file="../RData/shiny_data.RData")
+metadata$condition <- factor(metadata$condition)
+metadata$condition <- relevel(metadata$condition, ref="TregRest")
+save(DE, expr, go.terms, gene.go, reactome.terms, gene.reactome, metadata, glyco.ens, file="../RData/shiny_data.RData")
 rm(DE, expr)
 ```
 
-## Grouping
 
+## Glycogenes
 
-Here we attempt to find groups of data with similar properties. Specifically, we look at at the fold change between three pairs of conditions: want to find genes that have similar fold changes in all cell lines (e.g. all upregulated).
-
-### Clustering
-
-First we try k-means clustering. We use the elbow method to assess the optimal number of clusters. We pre-filter data as follow:
-
-- select only data with at least 30 counts in at least one replicate
-- select only data with at least one FDR (across three pairs of conditions) less than 0.05
-
-The second step is supposed to remove data with no changes at all.
-
-```{r prepare_for_clustering}
-DE <- star.test
-expr <- cnt.star
-pairs <- names(DE)
-pair <- pairs[1]
-expr <- expr[DE[[pair]]$gene_id, ] # make sure the order of genes is the same
-mx <- apply(expr, 1, max)
-mask <- which(mx >= 30)  # at least 30 counts in at least one replicate
-
-fcdat <- lapply(pairs, function(nm) {
-  d <- data.frame(FC=star.test[[nm]]$logFC)
-  rownames(d) <- star.test[[nm]]$gene_id
-  colnames(d) <- paste("logFC_", nm)
-  d <- d[mask,, drop=FALSE ]
-  d
-})
-fcdat <- do.call(cbind, fcdat)
-
-fdr.names <- paste0("FDR_", pairs)
-fc.names <- paste0("logFC_", pairs)
-
-pdat <- lapply(pairs, function(nm) {
-  d <- data.frame(p=star.test[[nm]]$FDR)
-  rownames(d) <- star.test[[nm]]$gene_id
-  colnames(d) <- paste0("FDR_", nm)
-  d <- d[mask,, drop=FALSE ]
-  d
-})
-pdat <- do.call(cbind, pdat) 
-```
-
-```{r fcdat_selection}
-sel <- rowSums(pdat <= 0.05) > 0
-expr <- expr[sel, ]
-fcdat <- fcdat[sel, ]
-pdat <- pdat[sel, ] 
-```
-
-
-```{r n_clust_sse, fig.width=4, fig.height=3}
-set.seed(666)
-range <- 2:10
-sse <- lapply(range, function(nc) {
-  sum(kmeans(fcdat, centers=nc)$withinss)
-})
-df <- data.frame(nclust=range, SSE=unlist(sse))
-ggplot(df, aes(nclust, SSE)) +
-  geom_line() +
-  geom_point() +
-  scale_x_continuous(breaks=seq(12)) +
-  labs(x="Number of clusters", y="Within sum of squares")
-```
-
-This plot show the clustering error (the within sum of squares) as a function of requested number of clusters. We are looking for an "elbow" in the plot and it seems it is at k = 4. Here I use 4 clusters.
-
-
-
-
-```{r cluster_profiles_function}
-plotClusters <- function(km, fcdat) {
-  kmc <- reshape2::melt(km$centers, varnames=c("cluster", "pair"))
-  fcd <- fcdat
-  fcd$cluster <- km$cluster
-  fcd$gene <- rownames(fcd)
-  mfc <- reshape2::melt(fcd, id.vars=c("cluster", "gene"))
-  kmc$cluster <- factor(kmc$cluster)
-
-  ggplot() +
-    geom_line(data=mfc, aes(x=variable, y=value, group=gene), colour="grey50") +
-    geom_line(data=kmc, aes(x=pair, y=value, group=cluster), colour="black", size=2) +
-    geom_hline(yintercept = 0, colour="red") +
-    facet_grid(. ~ cluster) +
-    theme(axis.text.x = element_text(angle=90, hjust=1))
+```{r plot_one_gene_function}
+plotOneGene <- function(dat, metadata, name="") {
+  d <- data.frame(
+    metadata,
+    expr = as.numeric(dat)
+  )
+  
+  ggplot(d, aes(x=condition, y=expr, fill=as.factor(replicate))) +
+    theme_classic() +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size=12)
+    ) +
+    geom_beeswarm(cex=5, size=3, shape=21) +
+    scale_y_continuous(expand=c(0,0), limits=c(0, 1.05*max(d$expr))) +
+    #scale_fill_manual(values=cbPalette) +
+    viridis::scale_fill_viridis(discrete=TRUE, option="cividis") +
+    labs(x=NULL, y=NULL, title=name)
 }
 ```
 
-
-```{r cluster_fc_4, fig.width=5, fig.height=4}
-set.seed(1066)
-km4 <- kmeans(fcdat, centers=4) 
-plotClusters(km4, fcdat)
+```{r glycosel}
+DE <- star.test$`Active-Rest`
+rownames(DE) <- DE$gene_id
+sel <- DE$FDR < 0.05 & DE$gene_id %in% glyco.ens
+glyco.sel <- DE[sel, "gene_id"]
+glyco.sel <- glyco.sel[order(DE[glyco.sel, "logFC"])]
 ```
 
-Hm... Clusters 2 and 3 contain globally down- and up-regulated genes. Clusters 1 and 4 are rather similar. I'm not sure we are getting anywhere with these. I believe there are no simple group patterns in our data.
+Out of the `r length(glyco.ens)` glycogenes we have `r length(glyco.sel)` genes that are differentially expressed. Here I show intensity plots for all of them.
 
-Lets try $k = 8$.
-
-```{r cluster_fc_8, fig.width=8, fig.height=4}
-set.seed(1066)
-km8 <- kmeans(fcdat, centers=8) 
-plotClusters(km8, fcdat)
-```
-
-This time we have clusters 3 and 8 with up- and down-regulated genes. I'm not convinced by other patters we see.
-
-We need to try something simpler.
-
-### Consistent regulation
-
-Now I want to find genes that are consistently up- or down-regulated between WT and KI, for all three cell lines. Instead of rather messy clustering I simply add log-fold-changes across three cell lines. I also filter genes to be statistically significant (FDR < 0.05) in at least two out of three cell lines. 
-
-```{r fc_grouping}
-pairs <- names(star.test)
-fdr.names <- paste0("FDR_", pairs)
-fc.names <- paste0("logFC_", pairs)
-
-pdat <- lapply(pairs, function(nm) {
-  d <- data.frame(p=star.test[[nm]]$FDR)
-  rownames(d) <- star.test[[nm]]$gene_id
-  colnames(d) <- paste0("FDR_", nm)
-  d <- d[mask,, drop=FALSE ]
-  d
+```{r plot_glycogenes, fig.width=12, fig.height=2.5}
+lst <- split(glyco.sel, (0:length(glyco.sel) %/% 6))
+#lst <- lst[1:3]
+F <- lapply(lst, function(genes) {
+  P <- lapply(genes, function(gene) {
+    d <- DE[DE$gene_id == gene,]
+    s <- sprintf("%s  %5.2f", d$gene_name, d$logFC)
+    plotOneGene(cnt.star.norm[gene, ], metadata, s)
+  })
+  if(length(P) > 0) {
+    g <- plot_grid(plotlist = P, nrow = 1)
+    print(g)
+  }
 })
-pdat <- do.call(cbind, pdat)
-
-fc.sum <- cbind(pdat, setNames(fcdat, fc.names))
-
-fc.sum$sumlogFC <- rowSums(fcdat)
-fc.sum$gene_id <- rownames(fc.sum)
-fc.sum <- merge(fc.sum, genes, by="gene_id")
-
-fc.sum <- fc.sum[, c("gene_id", "gene_name", "sumlogFC", fc.names, fdr.names, "description")]
-
-
-fc.sum <- fc.sum[order(fc.sum$sumlogFC), ]
-
-
-fdrs <- fc.sum[, fdr.names]
-fsig <- fdrs <= 0.05
-two.sig <- rowSums(fsig) >= 2
-
-fc.sum <- fc.sum[two.sig, ]
 ```
 
-
-```{r save_fcdat}
-fc.sum$sumlogFC <- round(fc.sum$sumlogFC, 2)
-for(nm in fdr.names) fc.sum[, nm] <- signif(fc.sum[, nm], 2)
-for(nm in fc.names) fc.sum[, nm] <- round(fc.sum[, nm], 2)
-
-fname <- "fold_change_sum.txt"
-if(!dir.exists(dirs$download)) dir.create(dirs$download)
-file <- paste0(dirs$download, fname)
-write.table(fc.sum, file=file, quote=FALSE, sep="\t", col.names=TRUE, row.names=FALSE)
-url <- paste0(public_html, "download/", fname) 
-```
-
-The table with fold-change sum and FDRs can be downloaded from [here](`r url`). The data in the file are ordered according to the total log-fold-change. Negative log-fold-change means the gene is downregulated from WT to KI, positive means upregulated from WT to KI.

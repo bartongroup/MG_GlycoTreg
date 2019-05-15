@@ -3,7 +3,7 @@ library(parallel)
 N <- function(n) prettyNum(n, big.mark = ",")
 
 # top dir for the project
-topDir <- "/home/mgierlinski/projects/glycotreg/pilot/"
+topDir <- "/home/mgierlinski/projects/glycotreg/"
 
 # Public HTML for file downloads
 public_html <- "http://www.compbio.dundee.ac.uk/user/mgierlinski/glycotreg/"
@@ -18,12 +18,14 @@ subDirs <- list(
   fastq = "fastq/",
   qc = "qc/",
   multiqc = "multiqc/",
-  genome = "../genome/",
+  genome = "genome/",
   starmap = "starmap/",
   bam = "bam/",
   bedgraph = "bedgraph/",
   readcount = "readcount/",
-  salmon = "salmon/"
+  salmon = "salmon/",
+  download = "download/",
+  data = "data/"
 )
 
 # All directories
