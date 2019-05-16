@@ -40,6 +40,8 @@ Collaborators: [Paul Crocker](), [Gavuthami Murugesan](), [Gang Wu]()
 
 [Proposal](http://www.compbio.dundee.ac.uk/user/mgierlinski/glycotreg/doc/Proposal.pdf)
 
+[Sequencing report](http://www.compbio.dundee.ac.uk/user/mgierlinski/glycotreg/doc/E181945_report.pdf)
+
 Notebooks: [1](http://www.compbio.dundee.ac.uk/user/mgierlinski/glycotreg/doc/Notes.1.nb.html)
 
 ```{r global_setup, cache=FALSE, echo=FALSE}
@@ -79,7 +81,7 @@ metadata <- tibble(
   as.data.frame
 ```
 
-The experimental design is very simple: two conditions in four replicates each.
+The experimental design is very simple: two conditions in four replicates each. The conditions are regulatory T cells (Tregs) at rest and activated.
 
 ```{r metadata_show}
 myKable(metadata[, c("condition", "replicate", "sample")]) 
@@ -132,7 +134,7 @@ transcripts <- transcripts[, c("transcript_id", "transcript_name", "gene_name", 
 transcripts$description <- gsub("\\s\\[.*\\]", "", transcripts$description, perl=TRUE)
 ```
 
-For genome sequences, we downloaded RepeatMasker-filtered primary assembly. The gene models are in the form of a GTF file. We also downloaded CDNA sequences to use as transcriptome with *Salmon*.
+For genome sequences, we downloaded RepeatMasker-filtered primary assembly. The gene models are in the form of a GTF file. 
 
 #### Glycogenes
 
@@ -150,7 +152,7 @@ refseq <- unique(as.character(glyco$yourlist))
 refseq <- unlist(strsplit(refseq, ","))
 ```
 
-It contains `r N(nrow(glyco))` entires with `r N(length(refseq))` unique RefSeq identifiers. This is a result of mapping RefSeq to UniProt. I use Ensembl to map RefSeq IDs into Ensembl IDs used in this work.
+It contains `r N(nrow(glyco))` entires with `r N(length(refseq))` unique RefSeq identifiers. This is a result of mapping RefSeq IDs to UniProt. I use Ensembl to map these RefSeq IDs (I ignore UniProt here) into Ensembl IDs used in this work.
 
 ```{r convert_glyco}
 glyco.map <- getBM(
@@ -338,7 +340,22 @@ plotVolcano <- function(tab, alpha=0.05, title="", sel=NULL) {
     labs(x=expression(log[2]~FC), y=expression(log[10]~P), title=title) +
     scale_y_continuous(expand=c(0,0), limits=c(0, 1.04*max(-log10(tab$PValue))))
 }
+
+plotPDist <- function(tab, title="", bin.size=0.01) {
+  ggplot(tab) +
+    theme_classic() +
+    geom_histogram(aes(x=PValue, y=..density..), breaks=seq(0,1,bin.size), fill="darkgoldenrod2") +
+    labs(x="P-value", y="Density", title=title)
+}
 ```
+
+### P-value distribution
+
+```{r p_distribution, fig.width=5, fig.height=5}
+x <- star.test[[1]] %>% filter(logCPM > 0)
+plotPDist(x, bin.size=0.005)
+```
+
 
 ### Volcano plot
 
@@ -416,7 +433,8 @@ DE <- star.test
 expr <- cnt.star.norm
 metadata$condition <- factor(metadata$condition)
 metadata$condition <- relevel(metadata$condition, ref="TregRest")
-save(DE, expr, go.terms, gene.go, reactome.terms, gene.reactome, metadata, glyco.ens, file="../RData/shiny_data.RData")
+# need version 2 to be compatible with R 3.3 on the Shiny server
+save(DE, expr, go.terms, gene.go, reactome.terms, gene.reactome, metadata, glyco.ens, file="../RData/shiny_data.RData", version=2)
 rm(DE, expr)
 ```
 

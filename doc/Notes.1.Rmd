@@ -34,6 +34,11 @@ Bedgraph intersect failed due to lack of memory. The trick is to sort bed and be
 
 Working on the report and Shiny app. Took some time to get the app running, as the new selection (all/glyco) messed up everything.
 
+# 16/05/2019
+
+Improving shiny app. Setting up access.
+
+Problems loading RData on the shiny server. I turns out R 3.3 on the server could not read .RData file from the most recent R 3.6 on my box. Fortunately, I could save it as an older version. Note to self: workspace format version 2 is for R 1.4-3.5, version 3 is from 3.5.0.
 
 
 
