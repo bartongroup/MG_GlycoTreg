@@ -1,6 +1,11 @@
 libDir <- "/cluster/gjb_lab/mgierlinski/R/x86_64-redhat-linux-gnu-library/3.3"
 if(dir.exists(libDir)) .libPaths(libDir)
 
+dirs <- c("/home/mgierlinski/projects/glycotreg", "/cluster/gjb_lab/mgierlinski/projects/glycotreg")
+for(d in dirs){
+  if(dir.exists(d)) topDir <- d
+}
+
 library(shiny)
 library(ggplot2)
 library(dplyr)
@@ -11,7 +16,8 @@ css <- "table{font-size: 11px; background-color: #EAF5FF}"
 
 ### Read data ###
 
-load("../RData/shiny_data.RData")
+sfile <- file.path(topDir, "RData/shiny_data.RData")
+load(sfile)
 pairs <- names(DE)
 pair <- pairs[1]
 expr <- expr[DE[[pair]]$gene_id, ] # make sure the order of genes is the same
