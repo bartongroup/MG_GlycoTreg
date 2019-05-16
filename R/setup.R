@@ -1,5 +1,3 @@
-library(tidyverse)
-library(parallel)
 N <- function(n) prettyNum(n, big.mark = ",")
 
 # top dir for the project

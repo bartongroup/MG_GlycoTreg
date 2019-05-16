@@ -24,7 +24,7 @@ Collaborators: [Paul Crocker](), [Gavuthami Murugesan](), [Gang Wu]()
 
 # 14/05/2019
 
-Downloaded FASTQ file from Basespace using basemount (direct download does not work in Linux). Using a modified Snakemake file copied from another project (trypseq). Starting routine analysis. Created conda environment with (hopefully) all necessary packages. Running snakamake. 
+Downloaded FASTQ file from Basespace using basemount (direct download does not work in Linux). Using a modified Snakemake file copied from another project (trypseq). Starting routine analysis. Created conda environment with (hopefully) all necessary packages. Running snakemake. 
 
 Oh joy of joys. I've recently upgraded to R 3.6, which means that now I need to re-install all the libraries. This takes time...
 
@@ -39,6 +39,8 @@ Working on the report and Shiny app. Took some time to get the app running, as t
 Improving shiny app. Setting up access.
 
 Problems loading RData on the shiny server. I turns out R 3.3 on the server could not read .RData file from the most recent R 3.6 on my box. Fortunately, I could save it as an older version. Note to self: workspace format version 2 is for R 1.4-3.5, version 3 is from 3.5.0.
+
+Writing up and tidying up the report.
 
 
 

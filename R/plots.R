@@ -20,12 +20,14 @@ plotMV <- function(dat, metadata, title="", mid.gradient=0.3, bins=80) {
     )
   })
   d <- do.call(rbind, P)
+  d <- d[d$M > 0,]
   
   ggplot(d, aes(log10(M), log10(V))) + 
     labs(x="log10 Mean", y="log10 Variance", title=title) +
     facet_grid(. ~ condition) +
     stat_binhex(bins=bins) +
-    scale_fill_gradientn(colours=c("seagreen","yellow", "red"), values=c(0, mid.gradient, 1), name="count", na.value=NA) +
+    viridis::scale_fill_viridis(values=c(0, mid.gradient, 1), name="count", na.value=NA) +
+    #scale_fill_gradientn(colours=c("seagreen","yellow", "red"), values=c(0, mid.gradient, 1), name="count", na.value=NA) +
     geom_abline(slope=1, intercept=0, colour="red")
     
 }

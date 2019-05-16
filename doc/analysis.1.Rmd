@@ -17,7 +17,7 @@ knitr::opts_chunk$set(
   echo = FALSE,
   cache = TRUE
 )
-options(width = 1000)
+options(width = 100)
 options(knitr.table.format = "html")
 ```
 
@@ -44,18 +44,22 @@ Collaborators: [Paul Crocker](), [Gavuthami Murugesan](), [Gang Wu]()
 
 Notebooks: [1](http://www.compbio.dundee.ac.uk/user/mgierlinski/glycotreg/doc/Notes.1.nb.html)
 
+
+[Interactive data explorer](https://shiny.compbio.dundee.ac.uk/marek_glycotreg/shiny_de/)
+
 ```{r global_setup, cache=FALSE, echo=FALSE}
 source("../R/setup.R")
 source("../R/star.R")
 source("../R/plots.R")
 source("../R/biomart.R")
 source("../R/set_enrichment.R")
+library(tidyverse)
 library(knitr)
 library(kableExtra)
-library(rjson)
 library(ggbeeswarm)
+library(GGally)
 library(cowplot)
-library(grid)
+#library(grid)
 library(viridis)
 library(biomaRt)
 library(edgeR)
@@ -76,8 +80,7 @@ metadata <- tibble(
   replicate = c(1:4, 1:4)
 ) %>% 
   mutate(sample = paste0(condition, "_", replicate)) %>%
-  mutate(name = sample, group = as.factor(condition)) %>%
-  mutate(group = relevel(group, "TregRest")) %>%
+  mutate(name = sample, group = factor(condition, levels=c("TregRest", "TregAct"))) %>%
   as.data.frame
 ```
 
@@ -129,9 +132,9 @@ genes <- biomartGeneDownload(mart)
 genes <- genes[, c("gene_id", "gene_name", "description")]
 genes$description <- gsub("\\s\\[.*\\]", "", genes$description, perl=TRUE)
 
-transcripts <- biomartTranscriptDownload(mart)
-transcripts <- transcripts[, c("transcript_id", "transcript_name", "gene_name", "description")]
-transcripts$description <- gsub("\\s\\[.*\\]", "", transcripts$description, perl=TRUE)
+#transcripts <- biomartTranscriptDownload(mart)
+#transcripts <- transcripts[, c("transcript_id", "transcript_name", "gene_name", "description")]
+#transcripts$description <- gsub("\\s\\[.*\\]", "", transcripts$description, perl=TRUE)
 ```
 
 For genome sequences, we downloaded RepeatMasker-filtered primary assembly. The gene models are in the form of a GTF file. 
@@ -148,11 +151,10 @@ glyco <- read.table(file, sep="\t", header=TRUE)
 colnames(glyco) <- gsub("\\.M20.*$", "", colnames(glyco), perl=TRUE)
 
 # some refseq entries have two comma-separated IDs
-refseq <- unique(as.character(glyco$yourlist))
-refseq <- unlist(strsplit(refseq, ","))
+refseq <- glyco$yourlist %>% as.character %>% unique %>% strsplit(",") %>% unlist
 ```
 
-It contains `r N(nrow(glyco))` entires with `r N(length(refseq))` unique RefSeq identifiers. This is a result of mapping RefSeq IDs to UniProt. I use Ensembl to map these RefSeq IDs (I ignore UniProt here) into Ensembl IDs used in this work.
+It contains `r N(nrow(glyco))` entries with `r N(length(refseq))` unique RefSeq identifiers. This is a result of mapping RefSeq IDs to UniProt. I use Ensembl to map these RefSeq IDs (I ignore UniProt here) into Ensembl IDs used in this work.
 
 ```{r convert_glyco}
 glyco.map <- getBM(
@@ -176,15 +178,18 @@ We mapped reads to the genome using STAR, we also calculated reads per gene duri
 
 #### Mapping properties
 
-The table below summarises mapping properties.
+The table below summarises mapping properties. The percentage of uniquely mapped reads is around 80%, which is usual for mouse/human genome.
 
 ```{r star_properties}
 star.out <- do.call(cbind, lapply(metadata$sample, function(s) parseStarLog(dirs$starmap, s)))
-star.out <- t(star.out)
-star.out.sel <- star.out[, c(5, 7, 8, 9, 10, 11, 21:27)]
-kable(star.out.sel) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), font_size = 10) %>% scroll_box(width = "900px")
+star.out %>% 
+  t %>%
+  as.data.frame %>%
+  dplyr::select(5, 7, 8, 9, 10, 11, 21:27) %>%
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), font_size = 10) %>%
+  scroll_box(width = "900px")
 ```
-
 
 #### Strandedness
 
@@ -197,7 +202,7 @@ Next, we checked if data were stranded as they should be. We read STAR gene read
 Depending on the protocol, column 2 (or 3) contains sense reads, while the other column (3 or 2) should contain antisense reads. We expect the antisense reads to be much less than sense reads.
 
 ```{r star_strandedness, fig.width=8, fig.height=2.5}
-plotStarSense(paste0(dirs$readcount, "TregRest_1.txt"))
+plotStarSense(file.path(dirs$readcount, "TregRest_1.txt"))
 ```
 
 The second read strand contains our stranded data.
@@ -208,21 +213,21 @@ The second read strand contains our stranded data.
 bg <- readBedgraphs(dirs$bedgraph, metadata, windowSize = 1000000)
 ```
 
-Here we show reads mapped to the entire genome binned in bins of 0.5 Mb. The horizontal axis shows the cumulative genomic position across all chromosomes. Colour (not very well visible) show alternating chromosomes.
+Here we show reads mapped to the entire genome binned in bins of 1 Mb. The horizontal axis shows the cumulative genomic position across all chromosomes. Colour (not very well visible) show alternating chromosomes. This is a sanity check, to make sure there is nothing weird with data (e.g. excessive ribosomal sequences).
 
 ```{r manhattan_plot_ens, fig.width=10, fig.height=8}
 plotManhattan(bg, yscale=1e6) 
 ```
 
-
-The strong peak on the right is the start of MT, so probably not interesting. The peak on the left is in chromosome 1, bin 24.0-24.5 Mb. We might check it later to see what gene it is.
+It looks nice and clean. The strong peak on the right is the start of MT, so probably not interesting. The peak on the left is in chromosome 1, bin 24.0-24.5 Mb. We might check it later to see what gene it is.
 
 Here is the same plot, but with the vertical axis limited to show distribution of lower counts.
 
-```{r manhattan_plot_ens_lim, fig.width=10, fig.height=14}
+```{r manhattan_plot_ens_lim, fig.width=10, fig.height=8}
 plotManhattan(bg, yscale=1e6, ymax=1) 
 ```
 
+Nothing to complain about.
 
 ### Read count per gene
 
@@ -257,15 +262,27 @@ This is confirmed by clustering.
 plotClustering(cnt.star)
 ```
 
-Note that there seem to be differences between replicates 1-2 and 3-4 in both conditions. Sequencing was done in one go, on a single flow cell. Perhaps this is due to how samples were prepared?
+Note that there seem to be differences between replicates 1-2 and 3-4 in both conditions. Sequencing was done in one go, on a single flow cell. Perhaps this is due to how samples were prepared? I'm guessing replicates 1 and 2 (for both conditions) were prepared on one day and 3 and 4 on another. Is this right?
 
 #### PCA
 
 ```{r star_pca, fig.width=6, fig.height=4}
-plotPCA(cnt.star, metadata)
+plotPCA(cnt.star.norm, metadata)
 ```
 
-#### Read counts
+#### Replicate comparison
+
+```{r star_ens_xy_plot, fig.width=8, fig.height=7}
+X <- cnt.star.norm
+X[X == 0] <- NA
+ggpairs(log10(X),
+  lower = list(continuous=wrap("points", size=0.1, alpha=0.3)),
+  upper = list(continuous=wrap("cor", size=3))
+)
+```
+
+
+#### Read counts table
 
 ```{r star_read_counts_table}
 cnt.genes <- merge(round(cnt.star.norm, 1), genes, by.x="row.names", by.y="gene_id")
@@ -282,13 +299,6 @@ url <- paste0(public_html, "download/", fname)
 The table with normalized counts per gene can be downloaded from [here](`r url`).
 
 ## Differential expression
-
-[Interactive differential-expression explorer](https://shiny.compbio.dundee.ac.uk/marek_glycotreg/shiny_de/)
-
-
-### STAR
-
-We first start with STAR results, that is read counts per gene.
 
 We use `edgeR` with a simple two-condition design.
 
@@ -359,6 +369,8 @@ plotPDist(x, bin.size=0.005)
 
 ### Volcano plot
 
+Grey points show all data, black points are glycogenes. In-depth analysis of this plot can be done using [interactive data explorer](https://shiny.compbio.dundee.ac.uk/marek_glycotreg/shiny_de/).
+
 ```{r star_volcano_plots, fig.width=6, fig.height=5}
 P <- lapply(names(star.test), function(ctr) {
   plotVolcano(star.test[[ctr]], title=ctr, sel=glyco.ens)
@@ -371,6 +383,8 @@ p.val <- star.test[[1]]$FDR
 There are `r N(sum(p.val < 0.05))` differentially expressed genes (at FDR level of 0.05) among `r N(length(p.val))` of all tested genes.
 
 ### DE tables
+
+The link below provides a tab-delimited text table with differential expression results for all genes.
 
 ```{r star_DE_tables}
 links <- data.frame()
@@ -470,7 +484,7 @@ glyco.sel <- DE[sel, "gene_id"]
 glyco.sel <- glyco.sel[order(DE[glyco.sel, "logFC"])]
 ```
 
-Out of the `r length(glyco.ens)` glycogenes we have `r length(glyco.sel)` genes that are differentially expressed. Here I show intensity plots for all of them.
+Out of the `r length(glyco.ens)` glycogenes we have `r length(glyco.sel)` genes that are differentially expressed. Here I show intensity plots for all of them. The number next to the gene name is log-2 fold change.
 
 ```{r plot_glycogenes, fig.width=12, fig.height=2.5}
 lst <- split(glyco.sel, (0:length(glyco.sel) %/% 6))
@@ -488,3 +502,9 @@ F <- lapply(lst, function(genes) {
 })
 ```
 
+## Session info
+
+```{r session_info}
+options(width = 80)
+sessionInfo()
+```
