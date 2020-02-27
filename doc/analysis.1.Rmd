@@ -181,8 +181,9 @@ We mapped reads to the genome using STAR, we also calculated reads per gene duri
 The table below summarises mapping properties. The percentage of uniquely mapped reads is around 80%, which is usual for mouse/human genome.
 
 ```{r star_properties}
-star.out <- do.call(cbind, lapply(metadata$sample, function(s) parseStarLog(dirs$starmap, s)))
-star.out %>% 
+metadata$sample %>%
+  lapply(function(s) parseStarLog(dirs$starmap, s)) %>%
+  do.call(cbind, .) %>%
   t %>%
   as.data.frame %>%
   dplyr::select(5, 7, 8, 9, 10, 11, 21:27) %>%

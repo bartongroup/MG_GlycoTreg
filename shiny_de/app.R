@@ -1,4 +1,4 @@
-libDir <- "/cluster/gjb_lab/mgierlinski/R/x86_64-redhat-linux-gnu-library/3.3"
+libDir <- "/cluster/gjb_lab/mgierlinski/R_shiny/library/3.6/"
 if(dir.exists(libDir)) .libPaths(libDir)
 
 dirs <- c("/home/mgierlinski/projects/glycotreg", "/cluster/gjb_lab/mgierlinski/projects/glycotreg")
