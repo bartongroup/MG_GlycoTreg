@@ -45,7 +45,7 @@ Collaborators: [Paul Crocker](), [Gavuthami Murugesan](), [Gang Wu]()
 Notebooks: [1](http://www.compbio.dundee.ac.uk/user/mgierlinski/glycotreg/doc/Notes.1.nb.html)
 
 
-[Interactive data explorer](https://shiny.compbio.dundee.ac.uk/marek_glycotreg/shiny_de/)
+[Interactive data explorer](https://shiny.compbio.dundee.ac.uk/private/marek_glycotreg/shiny_de/)
 
 ```{r global_setup, cache=FALSE, echo=FALSE}
 source("../R/setup.R")
@@ -419,7 +419,7 @@ gene.go <- biomartGODownload(mart, gene_ids)
 ```{r go_set_enrichment}
 gene.go.enr <- setNames(gene.go, c("id", "term"))
 go.terms.enr <- setNames(go.terms, c("term", "name", "domain"))
-P <- mclapply(star.test, function(tab) {
+P <- parallel::mclapply(star.test, function(tab) {
   scores <- setNames(abs(tab$logFC), tab$gene_id)
   star.go.set <- setEnrichment(scores, gene.go.enr, go.terms.enr, nboot=1000)
 }, mc.cores = 3)
