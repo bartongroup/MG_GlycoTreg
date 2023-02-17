@@ -1,7 +1,7 @@
 N <- function(n) prettyNum(n, big.mark = ",")
 
 # top dir for the project
-topDir <- "/home/mgierlinski/projects/glycotreg/"
+topDir <- "../glycotreg/"
 
 # Public HTML for file downloads
 public_html <- "http://www.compbio.dundee.ac.uk/user/mgierlinski/glycotreg/"

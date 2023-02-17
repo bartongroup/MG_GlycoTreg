@@ -92,3 +92,38 @@ setEnrichment <- function(score, term.id, term.name, minn=3, nboot=1000, ncores=
   res <- do.call(rbind, P)
   return(res)
 }
+
+
+# Functions for fgsea enrichment analysis
+
+make_term_list <- function(gene2term) {
+  gene2term %>%
+    arrange(term_id) %>%
+    group_split(term_id) %>%
+    map(function(w) w$gene_id) %>%
+    set_names(unique(gene2term$term_id) %>% sort)  # dodgy!
+}
+
+fgsea_run <- function(trm, res, min.size = 3) {
+  term_list <-  make_term_list(trm$gene2term %>% filter(gene_id %in% res$gene_id))
+  ranks <-  set_names(res$value, res$gene_id)
+  fgsea::fgsea(pathways = term_list, stats = ranks, nproc = 6, minSize = min.size, eps = 0) %>%
+    as_tibble %>%
+    left_join(trm$terms, by = c("pathway" = "term_id")) %>%
+    arrange(NES) %>% 
+    select(term = pathway, term_name, pval, padj, NES, size, leading_edge = leadingEdge) 
+}
+
+
+fgsea_cache <- function(d, terms, file, valvar = "logFC") {
+  if (file.exists(file)) {
+    fg <- read_rds(file)
+  } else {
+    res <- d %>% 
+      mutate(value = get(valvar))
+    fg <- fgsea_run(terms, res)
+    write_rds(fg, file)
+  }
+  fg
+}
+

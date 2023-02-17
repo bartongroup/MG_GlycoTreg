@@ -59,6 +59,7 @@ library(kableExtra)
 library(ggbeeswarm)
 library(GGally)
 library(cowplot)
+library(readxl)
 #library(grid)
 library(viridis)
 library(biomaRt)
@@ -126,7 +127,7 @@ We use mouse genome data from Ensembl, assembly GRCm38, release 96.
 # it is 96.
 #mart <- useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl", version=96)
 
-mart <- useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl")
+mart <- useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl", version = 96)
  
 genes <- biomartGeneDownload(mart)
 genes <- genes[, c("gene_id", "gene_name", "description")]
@@ -143,8 +144,9 @@ For genome sequences, we downloaded RepeatMasker-filtered primary assembly. The 
 
 I received a table with glycogenes from Gavuthami.
 
-```{r read_glycogenes}
-file <- paste0(dirs$data, "glycogenes.txt")
+```{r read_glycogenes, eval=FALSE}
+# old file in different format
+file <- paste0("../data/glycogenes.txt")
 glyco <- read.table(file, sep="\t", header=TRUE)
 
 # there are weird strings in column names
@@ -154,9 +156,8 @@ colnames(glyco) <- gsub("\\.M20.*$", "", colnames(glyco), perl=TRUE)
 refseq <- glyco$yourlist %>% as.character %>% unique %>% strsplit(",") %>% unlist
 ```
 
-It contains `r N(nrow(glyco))` entries with `r N(length(refseq))` unique RefSeq identifiers. This is a result of mapping RefSeq IDs to UniProt. I use Ensembl to map these RefSeq IDs (I ignore UniProt here) into Ensembl IDs used in this work.
-
-```{r convert_glyco}
+```{r convert_glyco, eval=FALSE}
+# old
 glyco.map <- getBM(
   attributes=c("refseq_mrna", "ensembl_gene_id", "external_gene_name"),
   filters = "refseq_mrna",
@@ -166,11 +167,17 @@ glyco.map <- getBM(
 glyco.ens <- unique(glyco.map$ensembl_gene_id)
 ```
 
-```{r glyco_ens}
-myKable(glyco.map) %>% scroll_box(height = "400px", width = "400px")
+```{r read_glycogenes_new}
+glyco.ens <- read_excel("../data/List of glycogenes and functions.xlsx") %>% 
+  pull(ensembl_id)
 ```
 
-This gives us `r N(nrow(glyco.map))` mappings with `r N(length(glyco.ens))` unique Ensembl IDs associated with glycogenes.
+
+```{r glyco_ens}
+myKable(tibble(ensembl_id = glyco.ens)) %>% scroll_box(height = "400px", width = "400px")
+```
+
+This gives us `r N(length(glyco.ens))` unique Ensembl IDs associated with glycogenes.
 
 ### STAR
 
@@ -427,8 +434,9 @@ names(P) <- names(star.test)
 ```
 
 ```{r read_reactome}
-reactome <- read.delim("https://reactome.org/download/current/Ensembl2Reactome.txt", quote="", header=FALSE, sep="\t", stringsAsFactors=FALSE)
-names(reactome) <- c("gene_id", "reactome_id", "URL", "name", "evidence", "species")
+# reactome <- read.delim("https://reactome.org/download/current/Ensembl2Reactome.txt", quote="", header=FALSE, sep="\t", stringsAsFactors=FALSE)
+# names(reactome) <- c("gene_id", "reactome_id", "URL", "name", "evidence", "species")
+reactome <- read_tsv("../cache/reactome.tsv")
 ```
 
 ```{r filter_reactome}
@@ -453,6 +461,43 @@ save(DE, expr, go.terms, gene.go, reactome.terms, gene.reactome, metadata, glyco
 rm(DE, expr)
 ```
 
+
+### Gene set enrichment
+
+Set enrichment using R package `fgsea`.
+
+```{r gsea}
+library(fgsea)
+select <- dplyr::select
+
+go_terms <- list(
+  gene2term = gene.go %>% rename(term_id = go_id),
+  terms = go.terms %>% rename(term_id = go_id, term_name = go_name)
+)
+re_terms <- list(
+  gene2term = gene.reactome %>% rename(term_id = reactome_id),
+  terms = reactome.terms %>% rename(term_id = reactome_id, term_name = name)
+)
+de <- star.test$`Active-Rest` %>% as_tibble() %>% filter(logFC != 0)
+
+fg_go <- fgsea_cache(de, go_terms, file = "../cache/fg_go.rds")
+fg_re <- fgsea_cache(de, re_terms, file = "../cache/fg_re.rds")
+```
+
+Terms and pathways related to glycogenes
+
+```{r fgsea_glyco}
+fg_go_sig <- fg_go %>% filter(padj < 0.05)
+fg_re_sig <- fg_re %>% filter(padj < 0.05)
+
+fg_go_gly <- fg_go_sig %>% filter(str_detect(term_name, "[gG]lyc"))
+fg_re_gly <- fg_re_sig %>% filter(str_detect(term_name, "[gG]lyc"))
+
+fg_go_sig %>% select(-leading_edge) %>% myKable()
+fg_re_sig %>% select(-leading_edge) %>% myKable()
+```
+
+There are `r nrow(fg_go_sig)` significant GO terms and `r nrow(fg_re_sig)` significant reactome pathways. None of them are related to glycogenes.
 
 ## Glycogenes
 
